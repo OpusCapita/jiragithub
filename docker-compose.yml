@@ -33,6 +33,179 @@ services:
       - registrator
     command: ['--character-set-server=utf8', '--collation-server=utf8_general_ci']
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - '4369:4369'
+      - '5671:5671'
+      - '5672:5672'
+      - '15672:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS}
+      SERVICE_5672_NAME: 'rabbitmq-amqp'
+
+  acl:
+    image: opuscapita/acl:dev
+    labels:
+      - 'SERVICE_NAME=acl'
+      - 'SERVICE_TAGS=external,kong'
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_AUTH: ${REDIS_AUTH}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
+      SECURITY_MODE: local
+      SERVICE_3013_CHECK_HTTP: /api/health/check
+      SERVICE_3013_CHECK_INTERVAL: 15s
+      SERVICE_3013_CHECK_TIMEOUT: 3s
+    ports:
+     - '3013:3013'
+    depends_on:
+      - registrator
+      - mysql
+    command: 'npm run dev:production'
+
+  auth:
+    image: opuscapita/auth:dev
+    ports:
+     - '3005:3005'
+    environment:
+      GATEWAY_SCHEME: $GATEWAY_SCHEME
+      GATEWAY_IP: $GATEWAY_IP
+      GATEWAY_PORT: $GATEWAY_PORT
+      GATEWAY_CALLBACK: $GATEWAY_CALLBACK
+      MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD
+      MYSQL_DATABASE: $MYSQL_DATABASE
+      REDIS_AUTH: ${REDIS_AUTH}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
+      SERVICE_3005_CHECK_HTTP: /auth/certs
+      SERVICE_3005_CHECK_INTERVAL: 15s
+      SERVICE_3005_CHECK_TIMEOUT: 3s
+    depends_on:
+      - kong
+      - consul
+    command: 'npm run dev:production'
+
+  isodata:
+    image: opuscapita/isodata:dev
+    depends_on:
+      - mysql
+      - consul
+      - registrator
+    ports:
+      - '3006:3006'
+    labels:
+      SERVICE_NAME: isodata
+      SERVICE_TAGS: 'kong'
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      SERVICE_3006_CHECK_HTTP: /api/health/check
+      SERVICE_3006_CHECK_INTERVAL: 15s
+      SERVICE_3006_CHECK_TIMEOUT: 3s
+      PORT: '3006'
+    command: 'npm run dev:production'
+
+  supplier:
+    image: opuscapita/supplier:dev
+    depends_on:
+      - mysql
+      - isodata
+    labels:
+      SERVICE_NAME: 'supplier'  # Service name used by Registrator for adding to Consul's service discovery registry.
+      SERVICE_TAGS: 'kong'
+    ports:
+      - "3001:3001"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_AUTH: $REDIS_AUTH
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
+      SERVICE_3001_CHECK_HTTP: /api/health/check
+      SERVICE_3001_CHECK_INTERVAL: 15s
+      SERVICE_3001_CHECK_TIMEOUT: 3s
+    command: 'npm run dev'
+
+  customer:
+    image: opuscapita/customer:dev
+    depends_on:
+      - mysql
+      - consul
+      - registrator
+      - redis
+    labels:
+      SERVICE_NAME: 'customer'
+    environment:
+      SERVICE_3009_CHECK_HTTP: /api/health/check
+      SERVICE_3009_CHECK_INTERVAL: 15s
+      SERVICE_3009_CHECK_TIMEOUT: 3s
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      REDIS_AUTH: ${REDIS_AUTH}
+      RABBITMQ_USER: ${RABBITMQ_USER}
+      RABBITMQ_PASS: ${RABBITMQ_PASS}
+    ports:
+      - '3009:3009'
+    command: 'npm run dev'
+
+  kong:
+    image: opuscapita/kong:dev
+    environment:
+      KONG_DATABASE: 'postgres'
+      KONG_PG_HOST: $KONG_PG_HOST
+      KONG_PG_PORT: $KONG_PG_PORT
+      APP_HOST: $HOST_IP
+      APP_HOST_PROTOCOL: $APP_HOST_PROTOCOL
+      APP_HOST_PORT: $APP_HOST_PORT
+      GATEWAY_SCHEME: $GATEWAY_SCHEME
+      GATEWAY_IP: $GATEWAY_IP
+      GATEWAY_PORT: $GATEWAY_PORT
+      GATEWAY_CALLBACK: $GATEWAY_CALLBACK
+      POSTGRES_USER: $POSTGRES_USER
+      POSTGRES_DB: $POSTGRES_DB
+      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
+      REDIS_HOST: $HOST_IP # TODO: remove after api-gw is using config
+      REDIS_PORT: 6379 # TODO: remove after api-gw is using config
+      REDIS_AUTH: $REDIS_AUTH # TODO: remove after api-gw is using config
+      SERVICE_8001_NAME: 'kong'
+      SERVICE_8080_NAME: 'kong-http'
+    ports:
+      - '8080:8080'
+      - '8443:8443'
+      - '8001:8001'
+      - '7946:7946'
+      - '7946:7946/udp'
+    depends_on:
+      - postgres
+      - mysql
+      - redis
+
+  api-registry:
+    image: opuscapita/api-registrator:dev
+    ports:
+      - 3004:3004
+    environment:
+      SERVICE_3002_CHECK_HTTP: /api/health/check
+      SERVICE_3002_CHECK_INTERVAL: 15s
+      SERVICE_3002_CHECK_TIMEOUT: 3s
+    depends_on:
+      - kong
+
+  postgres:
+    image: postgres:9.4
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: $POSTGRES_DB
+      POSTGRES_DB: $POSTGRES_USER
+      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
+    depends_on:
+      - registrator
+    
   registrator:
     image: gliderlabs/registrator
     restart: on-failure
