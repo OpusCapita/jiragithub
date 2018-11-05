@@ -1,0 +1,9 @@
+version: '2'
+services:
+  main:
+    build: .
+    volumes:
+      - ./src:/home/node/jiragithub/src
+      - ./config:/home/node/jiragithub/config
+      - ./wiki:/home/node/jiragithub/wiki
+    command: 'npm run dev'

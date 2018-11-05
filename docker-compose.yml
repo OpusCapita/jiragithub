@@ -1,0 +1,62 @@
+version: '2'
+services:
+  main:
+    image: opuscapita/jiragithub
+    depends_on:
+      - mysql
+      - consul
+      - registrator
+      - redis
+    labels:
+      SERVICE_NAME: 'jiragithub'
+      SERVICE_TAGS: 'external'
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      SERVICE_3035_NAME: jiragithub
+      SERVICE_3035_CHECK_HTTP: /api/health/check
+      SERVICE_3035_CHECK_INTERVAL: 15s
+      SERVICE_3035_CHECK_TIMEOUT: 3s
+    ports:
+      - '3035:3035'
+
+  mysql:
+    image: 'mysql:5.7'
+    ports:
+      - '3306:3306'
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      SERVICE_3306_NAME: mysql
+    depends_on:
+      - registrator
+    command: ['--character-set-server=utf8', '--collation-server=utf8_general_ci']
+
+  registrator:
+    image: gliderlabs/registrator
+    restart: on-failure
+    command: consul://consul:8500
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock
+    depends_on:
+      - consul
+
+  redis:
+    image: opuscapita/redis:dev
+    ports:
+      - '6379:6379'
+    environment:
+      REDIS_AUTH: ${REDIS_AUTH}
+    depends_on:
+      - registrator
+
+  consul:
+    image: consul:latest
+    ports:
+      - '8400:8400'
+      - '8500:8500'
+      - '8600:53/udp'
+    labels:
+      SERVICE_IGNORE: 'true'  # Do not add any of Consul's services to Consul's service discovery registry.
+    command: [agent, '-server', '-ui', '-bootstrap', '-client=0.0.0.0']
